@@ -1,0 +1,311 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model access_requests {
+  request_id                                String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  document_id                               String                @db.Uuid
+  requester_id                              String                @db.Uuid
+  requested_from_dept                       String                @db.Uuid
+  reason                                    String
+  status                                    access_request_status @default(pending)
+  reviewed_by                               String?               @db.Uuid
+  reviewer_comment                          String?
+  created_at                                DateTime              @default(now()) @db.Timestamptz(6)
+  reviewed_at                               DateTime?             @db.Timestamptz(6)
+  expires_at                                DateTime?             @db.Timestamptz(6)
+  documents                                 documents             @relation(fields: [document_id], references: [document_id], onDelete: Cascade, onUpdate: NoAction)
+  depts                                     depts                 @relation(fields: [requested_from_dept], references: [dept_id], onUpdate: NoAction)
+  users_access_requests_requester_idTousers users                 @relation("access_requests_requester_idTousers", fields: [requester_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+  users_access_requests_reviewed_byTousers  users?                @relation("access_requests_reviewed_byTousers", fields: [reviewed_by], references: [user_id], onUpdate: NoAction)
+
+  @@index([document_id], map: "idx_access_requests_document")
+  @@index([requester_id], map: "idx_access_requests_requester")
+  @@index([status], map: "idx_access_requests_status")
+}
+
+model audit_logs {
+  audit_id     String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  user_id      String?    @db.Uuid
+  root_user_id String?    @db.Uuid
+  action       String     @db.VarChar(100)
+  entity_type  String?    @db.VarChar(50)
+  entity_id    String?    @db.Uuid
+  details      Json       @default("{}")
+  ip_address   String?    @db.Inet
+  created_at   DateTime   @default(now()) @db.Timestamptz(6)
+  root_user    root_user? @relation(fields: [root_user_id], references: [root_user_id], onUpdate: NoAction)
+  users        users?     @relation(fields: [user_id], references: [user_id], onUpdate: NoAction)
+
+  @@index([created_at], map: "idx_audit_logs_created_at")
+  @@index([entity_type, entity_id], map: "idx_audit_logs_entity")
+  @@index([user_id], map: "idx_audit_logs_user")
+}
+
+model depts {
+  dept_id           String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  dept_name         String              @unique @db.VarChar(100)
+  description       String?
+  is_active         Boolean             @default(true)
+  created_by        String?             @db.Uuid
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime            @default(now()) @db.Timestamptz(6)
+  access_requests   access_requests[]
+  root_user         root_user?          @relation(fields: [created_by], references: [root_user_id], onUpdate: NoAction)
+  document_access   document_access[]
+  documents         documents[]
+  knowledge_sources knowledge_sources[]
+  users             users[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model document_access {
+  document_access_id                      String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  document_id                             String       @db.Uuid
+  user_id                                 String?      @db.Uuid
+  dept_id                                 String?      @db.Uuid
+  access_level                            access_level @default(read)
+  granted_by                              String?      @db.Uuid
+  created_at                              DateTime     @default(now()) @db.Timestamptz(6)
+  depts                                   depts?       @relation(fields: [dept_id], references: [dept_id], onDelete: Cascade, onUpdate: NoAction)
+  documents                               documents    @relation(fields: [document_id], references: [document_id], onDelete: Cascade, onUpdate: NoAction)
+  users_document_access_granted_byTousers users?       @relation("document_access_granted_byTousers", fields: [granted_by], references: [user_id], onUpdate: NoAction)
+  users_document_access_user_idTousers    users?       @relation("document_access_user_idTousers", fields: [user_id], references: [user_id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([dept_id], map: "idx_document_access_dept")
+  @@index([document_id], map: "idx_document_access_document")
+  @@index([user_id], map: "idx_document_access_user")
+}
+
+model document_reviews {
+  review_id     String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  document_id   String        @db.Uuid
+  reviewer_id   String?       @db.Uuid
+  review_status review_status @default(pending)
+  comments      String?
+  reviewed_at   DateTime?     @db.Timestamptz(6)
+  created_at    DateTime      @default(now()) @db.Timestamptz(6)
+  documents     documents     @relation(fields: [document_id], references: [document_id], onDelete: Cascade, onUpdate: NoAction)
+  users         users?        @relation(fields: [reviewer_id], references: [user_id], onUpdate: NoAction)
+
+  @@index([document_id], map: "idx_document_reviews_document")
+  @@index([review_status], map: "idx_document_reviews_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model document_versions {
+  version_id     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  document_id    String    @db.Uuid
+  version_number Int
+  storage_path   String
+  uploaded_by    String?   @db.Uuid
+  file_size      BigInt?
+  checksum       String?   @db.VarChar(128)
+  metadata       Json      @default("{}")
+  created_at     DateTime  @default(now()) @db.Timestamptz(6)
+  documents      documents @relation(fields: [document_id], references: [document_id], onDelete: Cascade, onUpdate: NoAction)
+  users          users?    @relation(fields: [uploaded_by], references: [user_id], onUpdate: NoAction)
+
+  @@unique([document_id, version_number])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model documents {
+  document_id         String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title               String              @db.VarChar(500)
+  original_filename   String              @db.VarChar(500)
+  file_type           String?             @db.VarChar(50)
+  mime_type           String?             @db.VarChar(100)
+  file_size           BigInt?
+  storage_path        String
+  source_id           String?             @db.Uuid
+  dept_id             String              @db.Uuid
+  uploaded_by         String?             @db.Uuid
+  status              document_status     @default(processing)
+  version             Int                 @default(1)
+  description         String?
+  checksum            String?             @db.VarChar(128)
+  extracted_text_path String?
+  metadata            Json                @default("{}")
+  created_at          DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime            @default(now()) @db.Timestamptz(6)
+  approved_at         DateTime?           @db.Timestamptz(6)
+  archived_at         DateTime?           @db.Timestamptz(6)
+  access_requests     access_requests[]
+  document_access     document_access[]
+  document_reviews    document_reviews[]
+  document_versions   document_versions[]
+  depts               depts               @relation(fields: [dept_id], references: [dept_id], onUpdate: NoAction)
+  knowledge_sources   knowledge_sources?  @relation(fields: [source_id], references: [source_id], onUpdate: NoAction)
+  users               users?              @relation(fields: [uploaded_by], references: [user_id], onUpdate: NoAction)
+  ingestion_jobs      ingestion_jobs[]
+
+  @@index([checksum], map: "idx_documents_checksum")
+  @@index([dept_id], map: "idx_documents_dept")
+  @@index([metadata], map: "idx_documents_metadata", type: Gin)
+  @@index([source_id], map: "idx_documents_source")
+  @@index([status], map: "idx_documents_status")
+  @@index([uploaded_by], map: "idx_documents_uploaded_by")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model ingestion_jobs {
+  ingestion_job_id  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  source_id         String?            @db.Uuid
+  document_id       String?            @db.Uuid
+  triggered_by      String?            @db.Uuid
+  status            ingestion_status   @default(queued)
+  discovered_count  Int                @default(0)
+  processed_count   Int                @default(0)
+  failed_count      Int                @default(0)
+  error_message     String?
+  started_at        DateTime?          @db.Timestamptz(6)
+  completed_at      DateTime?          @db.Timestamptz(6)
+  created_at        DateTime           @default(now()) @db.Timestamptz(6)
+  documents         documents?         @relation(fields: [document_id], references: [document_id], onUpdate: NoAction)
+  knowledge_sources knowledge_sources? @relation(fields: [source_id], references: [source_id], onDelete: Cascade, onUpdate: NoAction)
+  users             users?             @relation(fields: [triggered_by], references: [user_id], onUpdate: NoAction)
+
+  @@index([source_id], map: "idx_ingestion_jobs_source")
+  @@index([status], map: "idx_ingestion_jobs_status")
+}
+
+model knowledge_sources {
+  source_id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  source_name             String           @db.VarChar(200)
+  source_type             source_type
+  dept_id                 String           @db.Uuid
+  configured_by           String?          @db.Uuid
+  connection_config       Json             @default("{}")
+  status                  source_status    @default(connected)
+  last_scan_at            DateTime?        @db.Timestamptz(6)
+  last_successful_sync_at DateTime?        @db.Timestamptz(6)
+  last_error              String?
+  created_at              DateTime         @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime         @default(now()) @db.Timestamptz(6)
+  documents               documents[]
+  ingestion_jobs          ingestion_jobs[]
+  users                   users?           @relation(fields: [configured_by], references: [user_id], onUpdate: NoAction)
+  depts                   depts            @relation(fields: [dept_id], references: [dept_id], onDelete: Cascade, onUpdate: NoAction)
+}
+
+model root_user {
+  root_user_id  String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  username      String       @unique @db.VarChar(100)
+  email         String       @unique @db.VarChar(255)
+  password_hash String
+  full_name     String?      @db.VarChar(150)
+  is_active     Boolean      @default(true)
+  created_at    DateTime     @default(now()) @db.Timestamptz(6)
+  last_login_at DateTime?    @db.Timestamptz(6)
+  audit_logs    audit_logs[]
+  depts         depts[]
+  users         users[]
+}
+
+model users {
+  user_id                                             String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  clerk_user_id                                       String?             @unique @db.VarChar(255)
+  employee_code                                       String?             @unique @db.VarChar(50)
+  full_name                                           String              @db.VarChar(150)
+  email                                               String              @unique @db.VarChar(255)
+  password_hash                                       String?
+  dept_id                                             String              @db.Uuid
+  role                                                user_role           @default(employee)
+  status                                              user_status         @default(pending)
+  created_by                                          String?             @db.Uuid
+  created_at                                          DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                                          DateTime            @default(now()) @db.Timestamptz(6)
+  last_login_at                                       DateTime?           @db.Timestamptz(6)
+  access_requests_access_requests_requester_idTousers access_requests[]   @relation("access_requests_requester_idTousers")
+  access_requests_access_requests_reviewed_byTousers  access_requests[]   @relation("access_requests_reviewed_byTousers")
+  audit_logs                                          audit_logs[]
+  document_access_document_access_granted_byTousers   document_access[]   @relation("document_access_granted_byTousers")
+  document_access_document_access_user_idTousers      document_access[]   @relation("document_access_user_idTousers")
+  document_reviews                                    document_reviews[]
+  document_versions                                   document_versions[]
+  documents                                           documents[]
+  ingestion_jobs                                      ingestion_jobs[]
+  knowledge_sources                                   knowledge_sources[]
+  root_user                                           root_user?          @relation(fields: [created_by], references: [root_user_id], onUpdate: NoAction)
+  depts                                               depts               @relation(fields: [dept_id], references: [dept_id], onUpdate: NoAction)
+
+  @@index([dept_id], map: "idx_users_dept")
+  @@index([role], map: "idx_users_role")
+  @@index([status], map: "idx_users_status")
+}
+
+enum access_level {
+  read
+  edit
+  manage
+}
+
+enum access_request_status {
+  pending
+  approved
+  rejected
+  expired
+}
+
+enum document_status {
+  processing
+  pending_review
+  approved
+  rejected
+  changes_requested
+  archived
+  failed
+}
+
+enum ingestion_status {
+  queued
+  running
+  completed
+  failed
+  cancelled
+}
+
+enum review_status {
+  pending
+  approved
+  rejected
+  changes_requested
+}
+
+enum source_status {
+  connected
+  disconnected
+  syncing
+  error
+  disabled
+}
+
+enum source_type {
+  local
+  google_drive
+  onedrive
+  sharepoint
+  nas
+  dropbox
+  email
+  api
+}
+
+enum user_role {
+  employee
+  reviewer
+  dept_admin
+  admin
+}
+
+enum user_status {
+  pending
+  active
+  suspended
+  inactive
+}
